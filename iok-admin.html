@@ -1,0 +1,1305 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="robots" content="noindex, nofollow"/>
+  <title>IOK — Administration</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+    <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{background:#0a0b0d;color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+    ::-webkit-scrollbar{width:6px;} ::-webkit-scrollbar-track{background:#1a1d21;} ::-webkit-scrollbar-thumb{background:#374151;border-radius:3px;}
+    .leaflet-container{background:#1a1d21!important;}
+  .iok-popup .leaflet-popup-content-wrapper{background:#1a1d21;color:#f1f5f9;border:1px solid rgba(255,255,255,0.1);border-radius:10px;}
+  .leaflet-popup-tip{background:#1a1d21!important;}
+  .leaflet-control-zoom a{background:#1a1d21!important;color:#f1f5f9!important;border:1px solid rgba(255,255,255,0.12)!important;}
+  .cluster-icon{display:flex;align-items:center;justify-content:center;border-radius:50%;color:white;font-weight:800;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  window.onerror = function(msg, src, line) {
+    document.getElementById("root").innerHTML =
+      '<div style="padding:40px;text-align:center;color:#ef4444;font-family:sans-serif;">' +
+      '<div style="font-size:48px;margin-bottom:16px;">⚠️</div>' +
+      '<div style="font-size:16px;font-weight:700;margin-bottom:8px;">Erreur : ' + msg + '</div>' +
+      '<div style="font-size:12px;color:#6b7280;">Ligne ' + line + ' — ' + (src||"").split("/").pop() + '</div>' +
+      '</div>';
+  };
+</script>
+<script>
+  var SUPABASE_URL = "https://ghwozyzlhcmuhneumasv.supabase.co";
+  var SUPABASE_KEY = "sb_publishable_YrvKfDbW6S4Ls0WQeamcHg_dkch_k0R";
+  try{ window.IOK_DB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); }
+  catch(e){ console.error("Supabase init error:", e); }
+</script>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
+// Graphiques SVG natifs — pas de dépendance externe
+
+// ══ GRAPHIQUES SVG NATIFS (pas de CDN externe) ═══════════
+
+// ── Bar Chart SVG ─────────────────────────────────────────
+function SVGBarChart({data, keys, colors, height=200}){
+  if(!data||data.length===0) return(
+    <div style={{height,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:13}}>Aucune donnée</div>
+  );
+  const maxVal = Math.max(...data.flatMap(d => keys.map(k => d[k]||0)), 1);
+  const W = 300, H = height - 40;
+  const barW = Math.min(30, (W / data.length / keys.length) - 4);
+  const groupW = W / data.length;
+
+  return(
+    <div style={{overflowX:"auto"}}>
+      <svg viewBox={`0 0 ${Math.max(300, data.length*80)} ${height}`} style={{width:"100%",height}}>
+        {/* Grille */}
+        {[0,25,50,75,100].map(pct=>{
+          const y = 20 + H*(1-pct/100);
+          return <line key={pct} x1="30" y1={y} x2={Math.max(300,data.length*80)-10} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1"/>;
+        })}
+        {/* Barres */}
+        {data.map((d,i)=>{
+          const gx = 30 + i * (Math.max(300,data.length*80)-40) / data.length;
+          return(
+            <g key={i}>
+              {keys.map((k,ki)=>{
+                const val = d[k]||0;
+                const bh = Math.max(2, (val/maxVal)*H);
+                const bx = gx + ki*(barW+3);
+                const by = 20 + H - bh;
+                return(
+                  <g key={k}>
+                    <rect x={bx} y={by} width={barW} height={bh} fill={colors[ki]||"#3b82f6"} rx="3"/>
+                    {val>0&&<text x={bx+barW/2} y={by-3} textAnchor="middle" fontSize="9" fill={colors[ki]}>{val}</text>}
+                  </g>
+                );
+              })}
+              <text x={gx + keys.length*(barW+3)/2} y={height-5} textAnchor="middle" fontSize="10" fill={C.muted}>{String(d[Object.keys(d)[0]]).slice(0,8)}</text>
+            </g>
+          );
+        })}
+        {/* Axe Y */}
+        {[0,Math.round(maxVal/2),maxVal].map((v,i)=>{
+          const y = 20 + H*(1-v/maxVal);
+          return <text key={i} x="25" y={y+4} textAnchor="end" fontSize="9" fill={C.muted}>{v}</text>;
+        })}
+      </svg>
+      {/* Légende */}
+      <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:4}}>
+        {keys.map((k,i)=>(
+          <span key={k} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:C.muted}}>
+            <span style={{width:10,height:10,borderRadius:2,background:colors[i],display:"inline-block"}}/>
+            {k}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Pie Chart SVG ─────────────────────────────────────────
+function SVGPieChart({data, height=200}){
+  if(!data||data.length===0) return(
+    <div style={{height,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:13}}>Aucune donnée</div>
+  );
+  const total = data.reduce((s,d)=>s+(d.value||0),0);
+  if(total===0) return <div style={{height,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:13}}>Aucune donnée</div>;
+
+  const cx=100, cy=height/2, r=70, ri=40;
+  let angle = -Math.PI/2;
+
+  const slices = data.map(d=>{
+    const pct = d.value/total;
+    const start = angle;
+    angle += pct*2*Math.PI;
+    const end = angle;
+    const x1=cx+r*Math.cos(start), y1=cy+r*Math.sin(start);
+    const x2=cx+r*Math.cos(end),   y2=cy+r*Math.sin(end);
+    const xi1=cx+ri*Math.cos(start),yi1=cy+ri*Math.sin(start);
+    const xi2=cx+ri*Math.cos(end),  yi2=cy+ri*Math.sin(end);
+    const large = pct>0.5?1:0;
+    const path = `M${xi1},${yi1} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} L${xi2},${yi2} A${ri},${ri} 0 ${large} 0 ${xi1},${yi1} Z`;
+    const midA = start+(end-start)/2;
+    return {...d, path, pct, midA};
+  });
+
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:16}}>
+      <svg viewBox={`0 0 200 ${height}`} style={{width:200,height,flexShrink:0}}>
+        {slices.map((s,i)=>(
+          <path key={i} d={s.path} fill={s.color||"#3b82f6"} stroke={C.card} strokeWidth="2"/>
+        ))}
+        <text x={cx} y={cy-6} textAnchor="middle" fontSize="18" fontWeight="bold" fill={C.text}>{total}</text>
+        <text x={cx} y={cy+12} textAnchor="middle" fontSize="10" fill={C.muted}>total</text>
+      </svg>
+      <div style={{flex:1}}>
+        {slices.map((s,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+            <span style={{width:10,height:10,borderRadius:2,background:s.color,flexShrink:0}}/>
+            <span style={{fontSize:12,color:C.sub,flex:1}}>{s.name}</span>
+            <span style={{fontSize:12,fontWeight:700,color:C.text}}>{s.value}</span>
+            <span style={{fontSize:11,color:C.muted}}>({Math.round(s.pct*100)}%)</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Line Chart SVG ────────────────────────────────────────
+function SVGLineChart({data, lines, height=200}){
+  if(!data||data.length===0) return(
+    <div style={{height,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:13}}>Aucune donnée</div>
+  );
+  const W=300, H=height-50, PAD=30;
+  const allVals = data.flatMap(d=>lines.map(l=>d[l.key]||0));
+  const maxVal = Math.max(...allVals, 1);
+  const xStep = (W-PAD) / Math.max(data.length-1, 1);
+
+  const getX = i => PAD + i*xStep;
+  const getY = v => 20 + H*(1-(v/maxVal));
+
+  return(
+    <div style={{overflowX:"auto"}}>
+      <svg viewBox={`0 0 ${W} ${height}`} style={{width:"100%",height}}>
+        {/* Grille */}
+        {[0,25,50,75,100].map(pct=>{
+          const y=20+H*(1-pct/100);
+          return <line key={pct} x1={PAD} y1={y} x2={W} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1"/>;
+        })}
+        {/* Lignes */}
+        {lines.map(l=>{
+          const pts = data.map((d,i)=>`${getX(i)},${getY(d[l.key]||0)}`).join(' ');
+          return(
+            <g key={l.key}>
+              <polyline points={pts} fill="none" stroke={l.color} strokeWidth="2" strokeLinejoin="round"/>
+              {data.map((d,i)=>(
+                <circle key={i} cx={getX(i)} cy={getY(d[l.key]||0)} r="3" fill={l.color}/>
+              ))}
+            </g>
+          );
+        })}
+        {/* Labels X */}
+        {data.map((d,i)=>(
+          <text key={i} x={getX(i)} y={height-5} textAnchor="middle" fontSize="9" fill={C.muted}>{String(d.mois||d[Object.keys(d)[0]]).slice(0,6)}</text>
+        ))}
+        {/* Labels Y */}
+        {[0,Math.round(maxVal/2),maxVal].map((v,i)=>{
+          const y=20+H*(1-v/maxVal);
+          return <text key={i} x={PAD-4} y={y+4} textAnchor="end" fontSize="9" fill={C.muted}>{v}</text>;
+        })}
+      </svg>
+      {/* Légende */}
+      <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:4}}>
+        {lines.map(l=>(
+          <span key={l.key} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:C.muted}}>
+            <span style={{width:16,height:3,background:l.color,display:"inline-block",borderRadius:2}}/>
+            {l.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+
+// ── Design tokens ─────────────────────────────────────────────
+const C = {
+  bg:"#0a0b0d", surface:"#111318", card:"#1a1d21", border:"rgba(255,255,255,0.07)",
+  accent:"#FF5C3A", green:"#22C55E", gold:"#F5A623", red:"#EF4444",
+  text:"#F1F5F9", muted:"#6B7280", sub:"#9CA3AF", blue:"#3B82F6",
+};
+
+const CHART_COLORS = ["#22c55e","#3b82f6","#f5a623","#a855f7","#ef4444","#06b6d4"];
+
+function db(){ return window.IOK_DB; }
+
+// ── Auth admin ────────────────────────────────────────────────
+function AdminLogin({onSuccess}){
+  const [step,setStep]=useState("credentials"); // credentials | otp
+  const [email,setEmail]=useState("");
+  const [password,setPassword]=useState("");
+  const [otp,setOtp]=useState(["","","","","",""]);
+  const [adminData,setAdminData]=useState(null);
+  const [error,setError]=useState("");
+  const [loading,setLoading]=useState(false);
+  const otpRefs=useRef([]);
+
+  const handleOtpInput=(i,v)=>{
+    const d=v.replace(/\D/g,"").slice(-1);
+    const nc=[...otp]; nc[i]=d; setOtp(nc);
+    if(d&&i<5) otpRefs.current[i+1]?.focus();
+  };
+
+  const checkCredentials=async()=>{
+    setError(""); setLoading(true);
+    try{
+      const {data,error:e}=await db().from("admins")
+        .select("*").eq("email",email.trim().toLowerCase()).eq("actif",true).single();
+      if(e||!data) throw new Error("Email introuvable.");
+      if(data.password_hash!==password) throw new Error("Mot de passe incorrect.");
+      // Génère OTP et passe à l'étape 2
+      const otpCode="123456"; // TEST_MODE — en prod: Twilio SMS
+      console.log("OTP admin (test):", otpCode, "→ tel:", data.telephone);
+      setAdminData({...data,_otp:otpCode});
+      setStep("otp");
+    }catch(e){ setError(e.message); }
+    finally{ setLoading(false); }
+  };
+
+  const verifyOtp=async()=>{
+    setError(""); setLoading(true);
+    try{
+      const entered=otp.join("");
+      if(entered!==adminData._otp) throw new Error("Code incorrect. Réessayez.");
+      await db().from("admins").update({derniere_connexion:new Date().toISOString()}).eq("id",adminData.id);
+      onSuccess(adminData);
+    }catch(e){ setError(e.message); }
+    finally{ setLoading(false); }
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{width:"100%",maxWidth:380}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{margin:"0 auto 16px",filter:"drop-shadow(0 8px 24px rgba(244,0,0,0.4))"}}>
+              <svg width="64" height="64" viewBox="0 0 64 64">
+                <rect width="64" height="64" rx="18" fill="#F40000"/>
+                <path d="M37,11 L20,33 L33,33 L27,53 L46,29 L33,29 L40,11 Z" fill="#39FF14" stroke="#39FF14" strokeWidth="1.2" strokeLinejoin="round"/>
+              </svg>
+            </div>
+          <div style={{fontSize:9,letterSpacing:3,color:C.accent,textTransform:"uppercase",fontWeight:700}}>INSTANT OFFER KONECT</div>
+          <div style={{fontSize:22,fontWeight:800,color:C.text,marginTop:4}}>Administration</div>
+          <div style={{color:C.muted,fontSize:13,marginTop:4}}>Accès réservé aux administrateurs</div>
+        </div>
+
+        {step==="credentials"&&(
+          <div style={{background:C.card,borderRadius:16,padding:24,border:`1px solid ${C.border}`}}>
+            <div style={{marginBottom:14}}>
+              <div style={{color:C.sub,fontSize:11,fontWeight:600,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Email</div>
+              <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="admin@iok.fr" onKeyDown={e=>e.key==="Enter"&&checkCredentials()}
+                style={{width:"100%",background:"rgba(255,255,255,0.05)",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.text,fontSize:15,outline:"none",fontFamily:"inherit"}}/>
+            </div>
+            <div style={{marginBottom:20}}>
+              <div style={{color:C.sub,fontSize:11,fontWeight:600,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Mot de passe</div>
+              <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&checkCredentials()}
+                style={{width:"100%",background:"rgba(255,255,255,0.05)",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.text,fontSize:15,outline:"none",fontFamily:"inherit"}}/>
+            </div>
+            {error&&<div style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:8,padding:"10px 14px",marginBottom:14,color:C.red,fontSize:13}}>⚠️ {error}</div>}
+            <button onClick={checkCredentials} disabled={!email||!password||loading}
+              style={{width:"100%",padding:"13px 0",borderRadius:12,border:"none",background:!email||!password||loading?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#FF5C3A,#FF8C42)",color:!email||!password||loading?C.muted:"white",fontSize:15,fontWeight:700,cursor:!email||!password||loading?"default":"pointer",fontFamily:"inherit"}}>
+              {loading?"Vérification…":"Continuer →"}
+            </button>
+            <div style={{textAlign:"center",marginTop:14,color:C.muted,fontSize:12}}>
+              Démo : admin@iok.fr / admin123
+            </div>
+          </div>
+        )}
+
+        {step==="otp"&&(
+          <div style={{background:C.card,borderRadius:16,padding:24,border:`1px solid ${C.border}`}}>
+            <div style={{textAlign:"center",marginBottom:20}}>
+              <div style={{fontSize:36,marginBottom:8}}>📱</div>
+              <div style={{color:C.text,fontWeight:700,fontSize:16,marginBottom:4}}>Code de vérification</div>
+              <div style={{color:C.muted,fontSize:13}}>
+                Envoyé au {adminData?.telephone||"téléphone enregistré"}
+              </div>
+              {adminData?.telephone_secours&&(
+                <div style={{color:C.muted,fontSize:12,marginTop:4}}>
+                  Tél. secours : {adminData.telephone_secours}
+                </div>
+              )}
+              <div style={{background:"rgba(234,179,8,0.1)",border:"1px solid rgba(234,179,8,0.2)",borderRadius:8,padding:"6px 12px",marginTop:10,color:"#eab308",fontSize:12}}>
+                🧪 Mode test — code fixe : <strong>123456</strong>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:20}}>
+              {otp.map((d,i)=>(
+                <input key={i} ref={el=>otpRefs.current[i]=el} value={d}
+                  onChange={e=>handleOtpInput(i,e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Backspace"&&!d&&i>0){otpRefs.current[i-1]?.focus();const nc=[...otp];nc[i-1]="";setOtp(nc);}}}
+                  maxLength={1} type="number"
+                  style={{width:44,height:54,borderRadius:10,textAlign:"center",fontSize:22,fontWeight:700,background:"rgba(255,255,255,0.05)",border:`2px solid ${d?C.accent:C.border}`,color:C.text,outline:"none",fontFamily:"monospace"}}/>
+              ))}
+            </div>
+            {error&&<div style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:8,padding:"10px 14px",marginBottom:14,color:C.red,fontSize:13}}>⚠️ {error}</div>}
+            <button onClick={verifyOtp} disabled={otp.join("").length<6||loading}
+              style={{width:"100%",padding:"13px 0",borderRadius:12,border:"none",background:otp.join("").length<6||loading?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#FF5C3A,#FF8C42)",color:otp.join("").length<6||loading?C.muted:"white",fontSize:15,fontWeight:700,cursor:otp.join("").length<6||loading?"default":"pointer",fontFamily:"inherit"}}>
+              {loading?"Vérification…":"Accéder au dashboard →"}
+            </button>
+            <div style={{textAlign:"center",marginTop:12}}>
+              <button onClick={()=>{setStep("credentials");setError("");setOtp(["","","","","",""]);}}
+                style={{background:"transparent",border:"none",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+                ← Modifier mes identifiants
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Stat Card ─────────────────────────────────────────────────
+function StatCard({icon,label,value,sub,color}){
+  return(
+    <div style={{background:C.card,borderRadius:14,padding:"16px 18px",border:`1px solid ${C.border}`,flex:1,minWidth:140}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+        <span style={{fontSize:22}}>{icon}</span>
+        {color&&<div style={{width:8,height:8,borderRadius:"50%",background:color}}/>}
+      </div>
+      <div style={{color:C.text,fontSize:24,fontWeight:800,marginBottom:2}}>{value}</div>
+      <div style={{color:C.muted,fontSize:12,fontWeight:600}}>{label}</div>
+      {sub&&<div style={{color:C.sub,fontSize:11,marginTop:2}}>{sub}</div>}
+    </div>
+  );
+}
+
+// ── Table component ──────────────────────────────────────────
+function DataTable({columns, data, onSearch, searchPlaceholder, emptyMsg}){
+  const [search,setSearch]=useState("");
+  const filtered=data.filter(row=>
+    columns.some(col=>{
+      const val=col.accessor?row[col.accessor]:"";
+      return String(val||"").toLowerCase().includes(search.toLowerCase());
+    })
+  );
+  return(
+    <div>
+      {onSearch!==false&&(
+        <div style={{marginBottom:12}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={searchPlaceholder||"Rechercher..."}
+            style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",color:C.text,fontSize:14,outline:"none",fontFamily:"inherit"}}/>
+        </div>
+      )}
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead>
+            <tr style={{borderBottom:`1px solid ${C.border}`}}>
+              {columns.map(col=><th key={col.key} style={{padding:"10px 12px",textAlign:"left",color:C.muted,fontWeight:600,fontSize:11,letterSpacing:1,textTransform:"uppercase",whiteSpace:"nowrap"}}>{col.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length===0&&<tr><td colSpan={columns.length} style={{padding:"40px",textAlign:"center",color:C.muted}}>{emptyMsg||"Aucun résultat"}</td></tr>}
+            {filtered.map((row,i)=>(
+              <tr key={i} style={{borderBottom:`1px solid ${C.border}`,transition:"background 0.1s"}}
+                onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.03)"}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                {columns.map(col=>(
+                  <td key={col.key} style={{padding:"10px 12px",color:C.text,whiteSpace:col.wrap?"normal":"nowrap"}}>
+                    {col.render?col.render(row):row[col.accessor]||"-"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{color:C.muted,fontSize:11,marginTop:8,textAlign:"right"}}>{filtered.length} résultat{filtered.length>1?"s":""}</div>
+    </div>
+  );
+}
+
+// ── FIABILITE badge ───────────────────────────────────────────
+const FIB={
+  tres_fiable:{label:"⭐ Très fiable",color:"#22c55e",bg:"rgba(34,197,94,0.12)"},
+  fiable:     {label:"✓ Fiable",      color:"#f5a623",bg:"rgba(245,166,35,0.12)"},
+  peu_fiable: {label:"⚠️ Peu fiable", color:"#f97316",bg:"rgba(249,115,22,0.12)"},
+  nouveau:    {label:"🆕 Nouveau",    color:"#60a5fa",bg:"rgba(96,165,250,0.12)"},
+};
+function FBadge({statut}){
+  const f=FIB[statut||"nouveau"]||FIB.nouveau;
+  return <span style={{background:f.bg,color:f.color,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:12,whiteSpace:"nowrap"}}>{f.label}</span>;
+}
+
+// ── Format date ───────────────────────────────────────────────
+function fmtDate(iso){ if(!iso)return"-"; return new Date(iso).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}); }
+
+// ── ADMIN APP ─────────────────────────────────────────────────
+/* ══ DETAIL RESTAURATEUR (restaurants liés) ═════════════════ */
+function RestoDetail({restaurateur, restaurants, reservations, onBack}){
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <button onClick={onBack} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.sub,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>← Retour</button>
+        <div>
+          <div style={{color:C.text,fontWeight:700,fontSize:15}}>{restaurateur.responsable}</div>
+          <div style={{color:C.muted,fontSize:12}}>{restaurateur.email} · Plan {restaurateur.plan}</div>
+        </div>
+      </div>
+      {restaurants.length===0?(
+        <div style={{textAlign:"center",padding:"30px",color:C.muted}}>Aucun restaurant</div>
+      ):restaurants.map(r=>{
+        const resas = reservations.filter(rv=>rv.restaurant_id===r.id);
+        const honorees = resas.filter(rv=>rv.statut==="arrivee"||rv.statut==="terminee").length;
+        return(
+          <div key={r.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:22}}>{r.image_emoji||"🍽️"}</span>
+                <div>
+                  <div style={{color:C.text,fontWeight:700}}>{r.nom}</div>
+                  <div style={{color:C.muted,fontSize:11}}>{r.adresse} · {(r.cuisines||[]).join(", ")}</div>
+                </div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{color:r.disponible&&r.disponible_jusqu&&new Date(r.disponible_jusqu)>new Date()?C.green:C.red,fontWeight:700,fontSize:12}}>
+                  {r.disponible&&r.disponible_jusqu&&new Date(r.disponible_jusqu)>new Date()?"🟢 Dispo":"🔴 Indispo"}
+                </div>
+                <div style={{color:C.muted,fontSize:11}}>{r.prix_moyen?`${r.prix_moyen}€/pers`:""}</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              {[{v:`👥 ${r.nb_tables_2||0}`,l:"Tables 2"},{v:`👨‍👩‍👧‍👦 ${r.nb_tables_4||0}`,l:"Tables 4"},{v:resas.length,l:"Réservations"},{v:honorees,l:"Honorées"}].map((s,i)=>(
+                <div key={i} style={{background:C.card,borderRadius:8,padding:"6px 10px",textAlign:"center",flex:1}}>
+                  <div style={{color:C.text,fontWeight:700,fontSize:13}}>{s.v}</div>
+                  <div style={{color:C.muted,fontSize:10}}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ══ RÉSERVATIONS D'UN RESTAURANT ═══════════════════════════ */
+function RestoReservations({restaurant, reservations, onBack}){
+  const [filter,setFilter]=useState("Toutes");
+  const filtered = filter==="Toutes"?reservations:reservations.filter(r=>r.statut===filter);
+  const statColors={confirmee:"#3b82f6",arrivee:"#22c55e",terminee:"#6b7280",annulee:"#ef4444",no_show:"#ef4444",rappel_envoye:"#eab308"};
+
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+        <button onClick={onBack} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.sub,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>← Retour</button>
+        <div>
+          <div style={{color:C.text,fontWeight:700}}>{restaurant.image_emoji} {restaurant.nom}</div>
+          <div style={{color:C.muted,fontSize:12}}>{reservations.length} réservation{reservations.length>1?"s":""} au total</div>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+        {["Toutes","confirmee","arrivee","terminee","annulee"].map(s=>(
+          <button key={s} onClick={()=>setFilter(s)}
+            style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${filter===s?C.accent:C.border}`,background:filter===s?C.accent:"transparent",color:filter===s?"white":C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+            {s==="Toutes"?"Toutes":s}
+          </button>
+        ))}
+      </div>
+      {filtered.length===0?(
+        <div style={{textAlign:"center",padding:"30px",color:C.muted}}>Aucune réservation</div>
+      ):filtered.map(r=>(
+        <div key={r.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:12,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{color:C.text,fontWeight:600,fontSize:13}}>{r.client_prenom} {r.client_nom||""}</div>
+            <div style={{color:C.muted,fontSize:11}}>{r.client_telephone}</div>
+            <div style={{color:C.muted,fontSize:11}}>{fmtDate(r.created_at)} · {r.table_type==="2"?"👥 2 pers":"👨‍👩‍👧‍👦 4 pers"}</div>
+          </div>
+          <span style={{background:`${statColors[r.statut]||"#6b7280"}20`,color:statColors[r.statut]||"#6b7280",fontSize:11,fontWeight:700,padding:"3px 8px",borderRadius:10}}>
+            {r.statut}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+/* ══ GESTION DES ADMINS ═════════════════════════════════════ */
+function AdminsManager({db, currentAdmin}){
+  const [admins, setAdmins] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({nom:"",email:"",telephone:"",telephone_secours:""});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const loadAdmins = async()=>{
+    setLoading(true);
+    const {data} = await window.IOK_DB.from("admins").select("*").order("created_at");
+    if(data) setAdmins(data);
+    setLoading(false);
+  };
+
+  useEffect(()=>{ loadAdmins(); },[]);
+
+  const createAdmin = async()=>{
+    setError(""); setSaving(true);
+    try{
+      if(!form.nom.trim()||!form.email.trim()||!form.telephone.trim())
+        throw new Error("Nom, email et téléphone sont obligatoires.");
+      // Génère mot de passe temporaire
+      const tempPwd = "iok"+Math.random().toString(36).slice(2,8).toUpperCase();
+      const {error:e} = await window.IOK_DB.from("admins").insert({
+        nom: form.nom.trim(),
+        email: form.email.trim().toLowerCase(),
+        telephone: form.telephone.trim(),
+        telephone_secours: form.telephone_secours.trim()||null,
+        password_hash: tempPwd,
+        actif: true,
+      });
+      if(e) throw new Error(e.message);
+      // En prod : envoyer email avec tempPwd via Supabase Edge Function
+      console.log("✅ Nouvel admin créé — mot de passe temp:", tempPwd);
+      setSuccess(`✅ Admin créé ! Mot de passe temporaire : ${tempPwd} (copié dans la console)`);
+      setForm({nom:"",email:"",telephone:"",telephone_secours:""});
+      setShowForm(false);
+      loadAdmins();
+    }catch(e){ setError(e.message); }
+    finally{ setSaving(false); }
+  };
+
+  const toggleAdmin = async(id, actif)=>{
+    await window.IOK_DB.from("admins").update({actif:!actif}).eq("id",id);
+    loadAdmins();
+  };
+
+  const inputStyle = {width:"100%",background:"rgba(255,255,255,0.05)",border:`1px solid rgba(255,255,255,0.1)`,borderRadius:10,padding:"11px 14px",color:"#F1F5F9",fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
+  const labelStyle = {color:"#9CA3AF",fontSize:11,fontWeight:600,letterSpacing:1,textTransform:"uppercase",marginBottom:6,display:"block"};
+
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{color:"#F1F5F9",fontWeight:700,fontSize:15}}>{admins.length} administrateur{admins.length>1?"s":""}</div>
+        <button onClick={()=>{setShowForm(v=>!v);setError("");setSuccess("");}}
+          style={{background:"linear-gradient(135deg,#FF5C3A,#FF8C42)",border:"none",borderRadius:10,padding:"8px 16px",color:"white",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+          {showForm?"✕ Annuler":"+ Nouvel admin"}
+        </button>
+      </div>
+
+      {success&&(
+        <div style={{background:"rgba(34,197,94,0.1)",border:"1px solid rgba(34,197,94,0.3)",borderRadius:10,padding:"12px 14px",marginBottom:16,color:"#22c55e",fontSize:13}}>
+          {success}
+        </div>
+      )}
+
+      {showForm&&(
+        <div style={{background:"#1a1d21",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:20,marginBottom:20}}>
+          <div style={{color:"#F1F5F9",fontWeight:700,fontSize:14,marginBottom:16}}>Créer un nouvel administrateur</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+            <div><label style={labelStyle}>Nom <span style={{color:"#ef4444"}}>*</span></label><input value={form.nom} onChange={e=>setForm(p=>({...p,nom:e.target.value}))} placeholder="Prénom Nom" style={inputStyle}/></div>
+            <div><label style={labelStyle}>Email <span style={{color:"#ef4444"}}>*</span></label><input type="email" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))} placeholder="admin@iok.fr" style={inputStyle}/></div>
+            <div><label style={labelStyle}>Téléphone <span style={{color:"#ef4444"}}>*</span></label><input value={form.telephone} onChange={e=>setForm(p=>({...p,telephone:e.target.value}))} placeholder="06 12 34 56 78" style={inputStyle}/></div>
+            <div><label style={labelStyle}>Téléphone secours</label><input value={form.telephone_secours} onChange={e=>setForm(p=>({...p,telephone_secours:e.target.value}))} placeholder="07 12 34 56 78 (optionnel)" style={inputStyle}/></div>
+          </div>
+          <div style={{background:"rgba(234,179,8,0.08)",border:"1px solid rgba(234,179,8,0.2)",borderRadius:8,padding:"8px 12px",marginBottom:12,color:"#eab308",fontSize:12}}>
+            ℹ️ Un mot de passe temporaire sera généré. En production, un email d'invitation sera envoyé automatiquement.
+          </div>
+          {error&&<div style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:8,padding:"10px 14px",marginBottom:12,color:"#ef4444",fontSize:13}}>⚠️ {error}</div>}
+          <button onClick={createAdmin} disabled={saving}
+            style={{padding:"10px 24px",borderRadius:10,border:"none",background:saving?"rgba(255,255,255,0.05)":"linear-gradient(135deg,#FF5C3A,#FF8C42)",color:saving?"#6B7280":"white",fontSize:14,fontWeight:700,cursor:saving?"default":"pointer",fontFamily:"inherit"}}>
+            {saving?"Création…":"Créer l'administrateur"}
+          </button>
+        </div>
+      )}
+
+      {loading?(
+        <div style={{textAlign:"center",padding:"40px",color:"#6B7280"}}>Chargement…</div>
+      ):(
+        <div>
+          {admins.map(a=>(
+            <div key={a.id} style={{background:"#1a1d21",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px 16px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{color:"#F1F5F9",fontWeight:700,fontSize:14}}>{a.nom}</span>
+                  {a.id===currentAdmin?.id&&<span style={{background:"rgba(255,92,58,0.15)",color:"#FF5C3A",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10}}>Vous</span>}
+                  <span style={{color:a.actif?"#22c55e":"#ef4444",fontSize:11,fontWeight:600}}>{a.actif?"✓ Actif":"Inactif"}</span>
+                </div>
+                <div style={{color:"#9CA3AF",fontSize:12,marginTop:2}}>{a.email}</div>
+                <div style={{color:"#6B7280",fontSize:11,marginTop:1}}>
+                  📱 {a.telephone||"—"} {a.telephone_secours&&`· Secours: ${a.telephone_secours}`}
+                </div>
+                {a.derniere_connexion&&<div style={{color:"#6B7280",fontSize:11}}>Dernière connexion : {new Date(a.derniere_connexion).toLocaleDateString("fr-FR")}</div>}
+              </div>
+              {a.id!==currentAdmin?.id&&(
+                <button onClick={()=>toggleAdmin(a.id,a.actif)}
+                  style={{background:a.actif?"rgba(239,68,68,0.1)":"rgba(34,197,94,0.1)",border:`1px solid ${a.actif?"rgba(239,68,68,0.3)":"rgba(34,197,94,0.3)"}`,borderRadius:8,padding:"6px 12px",color:a.actif?"#ef4444":"#22c55e",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
+                  {a.actif?"Désactiver":"Activer"}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ══ CARTE ADMIN AVEC CLUSTERING ════════════════════════════ */
+function AdminMap({restaurants, restaurateurs}){
+  const mapRef = useRef(null);
+  const instanceRef = useRef(null);
+  const markersRef = useRef([]);
+  const [filter, setFilter] = useState({plan:"Tous", dispo:"Tous", ville:""});
+  const [stats, setStats] = useState({total:0, abonnes:0, dispos:0});
+
+  // Couleur marqueur selon statut
+  const getColor = (r) => {
+    if(!r._iok) return "#9ca3af";           // gris = non inscrit
+    if(r.disponible && r.disponible_jusqu && new Date(r.disponible_jusqu) > new Date())
+      return "#22c55e";                      // vert = disponible
+    return "#ef4444";                        // rouge = indisponible
+  };
+
+  // Filtre les restaurants
+  const filtered = useMemo(()=>{
+    return restaurants.filter(r=>{
+      if(filter.plan !== "Tous"){
+        if(filter.plan === "non_inscrit" && r._iok) return false;
+        if(filter.plan !== "non_inscrit" && r._plan !== filter.plan) return false;
+      }
+      if(filter.dispo === "dispo" && !(r.disponible && r.disponible_jusqu && new Date(r.disponible_jusqu)>new Date())) return false;
+      if(filter.dispo === "indispo" && (r.disponible && r.disponible_jusqu && new Date(r.disponible_jusqu)>new Date())) return false;
+      if(filter.ville && !r.ville?.toLowerCase().includes(filter.ville.toLowerCase())) return false;
+      return true;
+    });
+  }, [restaurants, filter]);
+
+  // Init carte
+  useEffect(()=>{
+    if(!mapRef.current || instanceRef.current) return;
+    const L = window.L;
+    const map = L.map(mapRef.current, {
+      center: [46.6034, 1.8883], zoom: 6,  // Centre France
+      zoomControl: true, attributionControl: true
+    });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+      maxZoom:19, attribution:"© OpenStreetMap"
+    }).addTo(map);
+    map.on("zoomend", ()=>{
+      const z = map.getZoom();
+      zoomRef.current = z;
+      setZoom(z);
+    });
+    instanceRef.current = map;
+    setTimeout(()=>map.invalidateSize(), 200);
+    return ()=>{ map.remove(); instanceRef.current = null; };
+  },[]);
+
+  // Zoom via ref pour déclencher re-render fiable
+  const [zoom, setZoom] = useState(6);
+  const zoomRef = useRef(6);
+
+  // Met à jour les marqueurs avec clustering manuel
+  useEffect(()=>{
+    const map = instanceRef.current;
+    if(!map || !window.L) return;
+
+    // Supprime anciens marqueurs
+    markersRef.current.forEach(m=>map.removeLayer(m));
+    markersRef.current = [];
+
+    if(zoom < 13){
+      // ── MODE CLUSTER : regroupe par ville ────────────────
+      const byVille = {};
+      filtered.forEach(r=>{
+        if(!r.latitude || !r.longitude) return;
+        const v = r.ville || "Autre";
+        if(!byVille[v]) byVille[v] = {
+          lat: r.latitude, lng: r.longitude,
+          total: 0, abonnes: 0, dispos: 0
+        };
+        byVille[v].total++;
+        if(r._iok) byVille[v].abonnes++;
+        if(r.disponible && r.disponible_jusqu && new Date(r.disponible_jusqu)>new Date()) byVille[v].dispos++;
+        // Moyenne des coords
+        byVille[v].lat = (byVille[v].lat + r.latitude) / 2;
+        byVille[v].lng = (byVille[v].lng + r.longitude) / 2;
+      });
+
+      Object.entries(byVille).forEach(([ville, d])=>{
+        const ratio = d.total > 0 ? d.abonnes/d.total : 0;
+        const clusterColor = ratio > 0.6 ? "#22c55e" : ratio > 0.3 ? "#f97316" : "#6b7280";
+        const size = Math.min(60, Math.max(36, 28 + d.total * 2));
+        const icon = window.L.divIcon({
+          html: `<div class="cluster-icon" style="width:${size}px;height:${size}px;background:${clusterColor};font-size:${size>44?13:11}px;">${d.total}</div>`,
+          className:"", iconSize:[size,size], iconAnchor:[size/2,size/2]
+        });
+        const m = window.L.marker([d.lat, d.lng], {icon});
+        m.addTo(map);
+        m.bindPopup(
+          `<div style="font-size:12px;line-height:1.6;">
+            <b>${ville}</b><br/>
+            🍽️ ${d.total} restaurants<br/>
+            ✅ ${d.abonnes} abonnés IOK<br/>
+            🟢 ${d.dispos} disponibles
+          </div>`,
+          {className:"iok-popup"}
+        );
+        m.on("click", ()=>map.setView([d.lat, d.lng], 13));
+        markersRef.current.push(m);
+      });
+    } else {
+      // ── MODE MARQUEURS INDIVIDUELS ───────────────────────
+      filtered.forEach(r=>{
+        if(!r.latitude || !r.longitude) return;
+        const color = getColor(r);
+        const icon = window.L.divIcon({
+          html: `<div style="width:22px;height:22px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:10px;">${r.image_emoji||"🍽️"}</div>`,
+          className:"", iconSize:[22,22], iconAnchor:[11,11]
+        });
+        const m = window.L.marker([r.latitude, r.longitude], {icon});
+        m.addTo(map);
+        const rt = restaurateurs.find(rt=>rt.id===r.restaurateur_id);
+        m.bindPopup(
+          `<div style="font-size:12px;line-height:1.7;">
+            <b>${r.image_emoji||"🍽️"} ${r.nom}</b><br/>
+            📍 ${r.ville}<br/>
+            👤 ${rt?.responsable||"?"}<br/>
+            📋 Plan : <b style="color:${color}">${r._iok?(r._plan||"trial"):"Non inscrit"}</b><br/>
+            ${r.disponible&&r.disponible_jusqu&&new Date(r.disponible_jusqu)>new Date()?"🟢 Disponible":"🔴 Indisponible"}
+          </div>`,
+          {className:"iok-popup"}
+        );
+        markersRef.current.push(m);
+      });
+    }
+
+    // Stats
+    setStats({
+      total: filtered.length,
+      abonnes: filtered.filter(r=>r._iok).length,
+      dispos: filtered.filter(r=>r.disponible&&r.disponible_jusqu&&new Date(r.disponible_jusqu)>new Date()).length,
+    });
+
+    // Zoom géré via ref dans init map
+  }, [filtered, zoom]);
+
+  const cities = [...new Set(restaurants.map(r=>r.ville).filter(Boolean))].sort();
+
+  return(
+    <div>
+      {/* Filtres */}
+      <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+        <input value={filter.ville} onChange={e=>setFilter(f=>({...f,ville:e.target.value}))}
+          placeholder="🔍 Ville..." style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 12px",color:C.text,fontSize:13,outline:"none",fontFamily:"inherit",width:160}}/>
+        {["Tous","trial","starter","premium","non_inscrit"].map(p=>(
+          <button key={p} onClick={()=>setFilter(f=>({...f,plan:p}))}
+            style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${filter.plan===p?C.accent:C.border}`,background:filter.plan===p?C.accent:"transparent",color:filter.plan===p?"white":C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:filter.plan===p?700:400}}>
+            {p==="Tous"?"Tous plans":p==="non_inscrit"?"Non inscrits":p}
+          </button>
+        ))}
+        {["Tous","dispo","indispo"].map(d=>(
+          <button key={d} onClick={()=>setFilter(f=>({...f,dispo:d}))}
+            style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${filter.dispo===d?C.accent:C.border}`,background:filter.dispo===d?C.accent:"transparent",color:filter.dispo===d?"white":C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+            {d==="Tous"?"Toutes dispo":d==="dispo"?"🟢 Disponibles":"🔴 Indisponibles"}
+          </button>
+        ))}
+      </div>
+
+      {/* Stats rapides */}
+      <div style={{display:"flex",gap:10,marginBottom:12}}>
+        {[
+          {v:stats.total,l:"Restaurants",c:C.text},
+          {v:stats.abonnes,l:"Abonnés IOK",c:"#22c55e"},
+          {v:stats.dispos,l:"Disponibles",c:"#22c55e"},
+          {v:stats.total-stats.abonnes,l:"Prospects",c:"#9ca3af"},
+        ].map((s,i)=>(
+          <div key={i} style={{background:C.card,borderRadius:10,padding:"8px 14px",border:`1px solid ${C.border}`,flex:1,textAlign:"center"}}>
+            <div style={{color:s.c,fontWeight:800,fontSize:18}}>{s.v}</div>
+            <div style={{color:C.muted,fontSize:11}}>{s.l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Carte */}
+      <div style={{borderRadius:14,overflow:"hidden",border:`1px solid ${C.border}`}}>
+        <div ref={mapRef} style={{height:520,width:"100%"}}/>
+      </div>
+
+      {/* Légende */}
+      <div style={{display:"flex",gap:16,marginTop:10,flexWrap:"wrap"}}>
+        {[["#22c55e","Disponible"],["#ef4444","Indisponible"],["#9ca3af","Non inscrit"],["#f97316","Cluster mixte"],["#6b7280","Cluster non-inscrits"]].map(([c,l])=>(
+          <span key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.muted}}>
+            <span style={{width:10,height:10,borderRadius:"50%",background:c,flexShrink:0}}/>
+            {l}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+function AdminApp({admin, onLogout}){
+  const [tab,setTab]=useState("dashboard");
+  const [data,setData]=useState({clients:[],restaurateurs:[],restaurants:[],reservations:[],loaded:false});
+  const [loading,setLoading]=useState(true);
+  const [cityFilter,setCityFilter]=useState("Toutes");
+  const [statutFilter,setStatutFilter]=useState("Tous");
+  const [selectedRestaurateur,setSelectedRestaurateur]=useState(null);
+  const [selectedRestaurant,setSelectedRestaurant]=useState(null);
+
+  // Charge toutes les données
+  const loadAll=async()=>{
+    setLoading(true);
+    try{
+      const [c,rt,rs,rv]=await Promise.all([
+        db().from("clients").select("*").order("created_at",{ascending:false}).limit(500),
+        db().from("restaurateurs").select("*").order("created_at",{ascending:false}).limit(200),
+        db().from("restaurants").select("*").order("created_at",{ascending:false}).limit(500),
+        db().from("reservations").select("*").order("created_at",{ascending:false}).limit(1000),
+      ]);
+      // Enrichit restaurants avec _iok et _plan
+      const rtMap = {};
+      (rt.data||[]).forEach(r=>rtMap[r.id]=r);
+      const enrichedRs = (rs.data||[]).map(r=>({
+        ...r, _iok:true,
+        _plan: rtMap[r.restaurateur_id]?.plan||"trial",
+      }));
+      setData({
+        clients:c.data||[],
+        restaurateurs:rt.data||[],
+        restaurants:enrichedRs,
+        reservations:rv.data||[],
+        loaded:true,
+      });
+    }catch(e){ console.error(e); }
+    setLoading(false);
+  };
+
+  useEffect(()=>{ loadAll(); },[]);
+
+  // ── Stats globales ─────────────────────────────────────────
+  const stats=useMemo(()=>{
+    const rv=data.reservations;
+    const total=rv.length;
+    const honorees=rv.filter(r=>r.statut==="terminee"||r.statut==="arrivee").length;
+    const annulees=rv.filter(r=>r.statut==="annulee"||r.statut==="no_show").length;
+    const enCours=rv.filter(r=>r.statut==="confirmee"||r.statut==="rappel_envoye"||r.statut==="prolongee").length;
+    const tauxHonore=total>0?Math.round(honorees/total*100):0;
+
+    // Par ville
+    const byVille={};
+    data.restaurants.forEach(r=>{
+      const v=r.ville||"Autre";
+      if(!byVille[v]) byVille[v]={ville:v,restaurants:0,reservations:0,honorees:0};
+      byVille[v].restaurants++;
+    });
+    rv.forEach(r=>{
+      const resto=data.restaurants.find(rs=>rs.id===r.restaurant_id);
+      const v=resto?.ville||"Autre";
+      if(byVille[v]){
+        byVille[v].reservations++;
+        if(r.statut==="terminee"||r.statut==="arrivee") byVille[v].honorees++;
+      }
+    });
+
+    // Par restaurant (top 10)
+    const byResto={};
+    rv.forEach(r=>{
+      if(!byResto[r.restaurant_id]) byResto[r.restaurant_id]={id:r.restaurant_id,total:0,honorees:0,annulees:0};
+      byResto[r.restaurant_id].total++;
+      if(r.statut==="terminee"||r.statut==="arrivee") byResto[r.restaurant_id].honorees++;
+      if(r.statut==="annulee"||r.statut==="no_show") byResto[r.restaurant_id].annulees++;
+    });
+    const topRestos=Object.values(byResto)
+      .map(r=>({...r,nom:data.restaurants.find(rs=>rs.id===r.id)?.nom||"?",taux:r.total>0?Math.round(r.honorees/r.total*100):0}))
+      .sort((a,b)=>b.total-a.total).slice(0,10);
+
+    // Evolution mensuelle (6 derniers mois)
+    const monthly={};
+    rv.forEach(r=>{
+      const m=new Date(r.created_at).toLocaleDateString("fr-FR",{month:"short",year:"2-digit"});
+      if(!monthly[m]) monthly[m]={mois:m,total:0,honorees:0,annulees:0};
+      monthly[m].total++;
+      if(r.statut==="terminee"||r.statut==="arrivee") monthly[m].honorees++;
+      if(r.statut==="annulee"||r.statut==="no_show") monthly[m].annulees++;
+    });
+
+    // Répartition statuts pour PieChart
+    const statuts=[
+      {name:"Honorées",value:honorees,color:"#22c55e"},
+      {name:"Annulées",value:annulees,color:"#ef4444"},
+      {name:"En cours",value:enCours,color:"#3b82f6"},
+      {name:"En attente",value:total-honorees-annulees-enCours,color:"#6b7280"},
+    ].filter(s=>s.value>0);
+
+    return { total,honorees,annulees,enCours,tauxHonore,byVille:Object.values(byVille),topRestos,monthly:Object.values(monthly).slice(-6),statuts };
+  },[data]);
+
+  // ── Sidebar ────────────────────────────────────────────────
+  const navItems=[
+    {id:"dashboard",icon:"📊",label:"Dashboard"},
+    {id:"clients",icon:"👥",label:"Clients"},
+    {id:"restaurateurs",icon:"👨‍🍳",label:"Restaurateurs"},
+    {id:"restaurants",icon:"🍽️",label:"Restaurants"},
+    {id:"reservations",icon:"📋",label:"Réservations"},
+    {id:"reporting",icon:"📈",label:"Reporting"},
+    {id:"carte",    icon:"🗺️", label:"Carte"},
+    {id:"admins",   icon:"👤",  label:"Admins"},
+  ];
+
+  return(
+    <div style={{display:"flex",minHeight:"100vh",background:C.bg}}>
+      {/* Sidebar */}
+      <div style={{width:220,background:C.surface,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0}}>
+        <div style={{padding:"24px 20px 16px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+            <svg width="32" height="32" viewBox="0 0 32 32">
+              <rect width="32" height="32" rx="9" fill="#F40000"/>
+              <path d="M18.5,5.5 L10,16.5 L16.5,16.5 L13.5,26.5 L23,15 L16.5,15 L20,5.5 Z" fill="#39FF14" stroke="#39FF14" strokeWidth="0.6" strokeLinejoin="round"/>
+            </svg>
+            <div>
+              <div style={{fontSize:8,letterSpacing:2,color:C.accent,textTransform:"uppercase",fontWeight:700}}>IOK</div>
+              <div style={{color:C.text,fontSize:13,fontWeight:800}}>Administration</div>
+            </div>
+          </div>
+          <div style={{color:C.muted,fontSize:11,marginTop:8}}>👤 {admin.nom}</div>
+        </div>
+        <nav style={{flex:1,padding:"8px 12px"}}>
+          {navItems.map(item=>(
+            <button key={item.id} onClick={()=>setTab(item.id)}
+              style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"none",background:tab===item.id?"rgba(255,92,58,0.15)":"transparent",color:tab===item.id?C.accent:C.sub,fontSize:13,fontWeight:tab===item.id?700:400,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:10,marginBottom:2,textAlign:"left",transition:"all 0.15s"}}>
+              <span>{item.icon}</span>{item.label}
+            </button>
+          ))}
+        </nav>
+        <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`}}>
+          <button onClick={onLogout} style={{width:"100%",padding:"8px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+            Déconnexion
+          </button>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div style={{flex:1,overflowY:"auto",padding:24}}>
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+          <div>
+            <div style={{color:C.text,fontSize:22,fontWeight:800}}>{navItems.find(n=>n.id===tab)?.icon} {navItems.find(n=>n.id===tab)?.label}</div>
+            <div style={{color:C.muted,fontSize:13,marginTop:2}}>{new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>setTab("dashboard")} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 12px",color:C.accent,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>⚡ Accueil</button>
+            <button onClick={loadAll} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 16px",color:C.sub,fontSize:13,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:6}}>{loading?"⏳":"🔄"} Actualiser</button>
+            <button onClick={onLogout} style={{background:"rgba(239,68,68,0.1)",border:`1px solid rgba(239,68,68,0.2)`,borderRadius:10,padding:"8px 12px",color:C.red,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+          </div>
+        </div>
+
+        {loading&&<div style={{textAlign:"center",padding:"60px 0",color:C.muted}}><div style={{fontSize:32,marginBottom:12}}>⚡</div>Chargement...</div>}
+
+        {!loading&&<>
+          {/* ─── DASHBOARD ────────────────────────────────────── */}
+          {tab==="dashboard"&&(
+            <div>
+              {/* KPI Cards */}
+              <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:24}}>
+                <StatCard icon="📋" label="Réservations totales" value={stats.total} color={C.blue}/>
+                <StatCard icon="✅" label="Honorées" value={stats.honorees} sub={`${stats.tauxHonore}% du total`} color={C.green}/>
+                <StatCard icon="❌" label="Annulées/No-show" value={stats.annulees} color={C.red}/>
+                <StatCard icon="⏳" label="En cours" value={stats.enCours} color={C.gold}/>
+                <StatCard icon="👥" label="Clients" value={data.clients.length} color={C.blue}/>
+                <StatCard icon="🍽️" label="Restaurants IOK" value={data.restaurants.length} color={C.accent}/>
+                <StatCard icon="🔭" label="Potentiel prospection" value={`~${Math.round(data.restaurants.length * 8)}`} sub="estimation ×8 non-inscrits" color="#9ca3af"/>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+                {/* Répartition statuts */}
+                <div style={{background:C.card,borderRadius:14,padding:18,border:`1px solid ${C.border}`}}>
+                  <div style={{color:C.text,fontWeight:700,fontSize:14,marginBottom:16}}>Répartition des réservations</div>
+                  {stats.total>0?(
+                    <SVGPieChart data={stats.statuts} height={200}/>
+                  ):<div style={{textAlign:"center",padding:"60px 0",color:C.muted}}>Aucune donnée</div>}
+                </div>
+
+                {/* Par ville */}
+                <div style={{background:C.card,borderRadius:14,padding:18,border:`1px solid ${C.border}`}}>
+                  <div style={{color:C.text,fontWeight:700,fontSize:14,marginBottom:16}}>Réservations par ville</div>
+                  {stats.byVille.length>0?(
+                  <SVGBarChart data={stats.byVille} keys={["reservations","honorees"]} colors={["#3b82f6","#22c55e"]} height={200}/>
+                  ):<div style={{textAlign:"center",padding:"60px 0",color:C.muted}}>Aucune donnée</div>}
+                </div>
+              </div>
+
+              {/* Évolution mensuelle */}
+              {stats.monthly.length>0&&(
+                <div style={{background:C.card,borderRadius:14,padding:18,border:`1px solid ${C.border}`,marginBottom:16}}>
+                  <div style={{color:C.text,fontWeight:700,fontSize:14,marginBottom:16}}>Évolution mensuelle</div>
+                  <SVGLineChart data={stats.monthly} height={200} lines={[
+                    {key:"total",    label:"Total",    color:"#3b82f6"},
+                    {key:"honorees", label:"Honorées", color:"#22c55e"},
+                    {key:"annulees", label:"Annulées", color:"#ef4444"},
+                  ]}/>
+                </div>
+              )}
+
+              {/* Top restaurants */}
+              {stats.topRestos.length>0&&(
+                <div style={{background:C.card,borderRadius:14,padding:18,border:`1px solid ${C.border}`}}>
+                  <div style={{color:C.text,fontWeight:700,fontSize:14,marginBottom:16}}>Top 10 restaurants par réservations</div>
+                  <DataTable
+                    onSearch={false}
+                    data={stats.topRestos}
+                    columns={[
+                      {key:"nom",label:"Restaurant",accessor:"nom"},
+                      {key:"total",label:"Total",accessor:"total"},
+                      {key:"honorees",label:"Honorées",accessor:"honorees"},
+                      {key:"annulees",label:"Annulées",accessor:"annulees"},
+                      {key:"taux",label:"Taux",render:r=><span style={{color:r.taux>=70?"#22c55e":r.taux>=40?"#f5a623":"#ef4444",fontWeight:700}}>{r.taux}%</span>},
+                    ]}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── CLIENTS ──────────────────────────────────────── */}
+          {tab==="clients"&&(
+            <div style={{background:C.card,borderRadius:14,padding:18,border:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div style={{color:C.text,fontWeight:700,fontSize:14}}>{data.clients.length} clients inscrits</div>
+                <div style={{display:"flex",gap:8}}>
+                  {["Tous","tres_fiable","fiable","peu_fiable","nouveau"].map(f=>(
+                    <button key={f} onClick={()=>setStatutFilter(f)}
+                      style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${statutFilter===f?C.accent:C.border}`,background:statutFilter===f?C.accent:"transparent",color:statutFilter===f?"white":C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:statutFilter===f?700:400}}>
+                      {f==="Tous"?"Tous":FIB[f]?.label||f}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <DataTable
+                searchPlaceholder="Rechercher un client..."
+                data={data.clients.filter(c=>statutFilter==="Tous"||c.fiabilite_statut===statutFilter)}
+                columns={[
+                  {key:"prenom",label:"Prénom",accessor:"prenom"},
+                  {key:"nom",label:"Nom",accessor:"nom"},
+                  {key:"tel",label:"Téléphone",accessor:"telephone"},
+                  {key:"email",label:"Email",accessor:"email"},
+                  {key:"fiabilite",label:"Fiabilité",render:r=><FBadge statut={r.fiabilite_statut}/>},
+                  {key:"resa",label:"Réservations",render:r=><span style={{color:C.text}}>{r.total_reservations||0}</span>},
+                  {key:"marketing",label:"Marketing",render:r=><span style={{color:r.consent_marketing?C.green:C.muted}}>{r.consent_marketing?"✓ Oui":"Non"}</span>},
+                  {key:"date",label:"Inscrit le",render:r=><span style={{color:C.muted,fontSize:11}}>{fmtDate(r.created_at)}</span>},
+                ]}
+              />
+            </div>
+          )}
+
+          {/* ─── RESTAURATEURS ────────────────────────────────── */}
+          {tab==="restaurateurs"&&(
+            <div style={{background:C.card,borderRadius:14,padding:18,border:`1px solid ${C.border}`}}>
+              <div style={{color:C.text,fontWeight:700,fontSize:14,marginBottom:16}}>{data.restaurateurs.length} restaurateurs</div>
+              {selectedRestaurateur?(
+                <RestoDetail
+                  restaurateur={selectedRestaurateur}
+                  restaurants={data.restaurants.filter(r=>r.restaurateur_id===selectedRestaurateur.id)}
+                  reservations={data.reservations}
+                  onBack={()=>setSelectedRestaurateur(null)}
+                />
+              ):(
+                <DataTable
+                  searchPlaceholder="Rechercher un restaurateur..."
+                  data={data.restaurateurs}
+                  columns={[
+                    {key:"resp",label:"Responsable",accessor:"responsable"},
+                    {key:"user",label:"Identifiant",accessor:"username"},
+                    {key:"email",label:"Email",accessor:"email"},
+                    {key:"tel",label:"Téléphone",accessor:"telephone"},
+                    {key:"plan",label:"Plan",render:r=>{
+                      const colors={trial:"#22c55e",starter:"#f5a623",premium:"#a855f7"};
+                      return <span style={{color:colors[r.plan]||C.muted,fontWeight:700}}>{r.plan}</span>;
+                    }},
+                    {key:"fiabilite",label:"Fiabilité",render:r=><FBadge statut={r.fiabilite_statut}/>},
+                    {key:"resa",label:"Réservations",render:r=><span>{r.total_reservations||0}</span>},
+                    {key:"actif",label:"Statut",render:r=><span style={{color:r.actif?C.green:C.red,fontWeight:700}}>{r.actif?"✓ Actif":"Inactif"}</span>},
+                    {key:"restaurants",label:"Restaurants",render:r=>{
+                      const count=data.restaurants.filter(rs=>rs.restaurateur_id===r.id).length;
+                      return(
+                        <button onClick={()=>setSelectedRestaurateur(r)}
+                          style={{background:C.accentSoft,border:`1px solid ${C.accent}`,borderRadius:8,padding:"4px 10px",color:C.accent,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                          🍽️ {count} resto{count>1?"s":""}
+                        </button>
+                      );
+                    }},
+                  ]}
+                />
+              )}
+            </div>
+          )}
+
+          {/* ─── RESTAURANTS ──────────────────────────────────── */}
+          {tab==="restaurants"&&(
+            <div style={{background:C.card,borderRadius:14,padding:18,border:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div style={{color:C.text,fontWeight:700,fontSize:14}}>{data.restaurants.length} restaurants</div>
+                <div style={{display:"flex",gap:8}}>
+                  {["Toutes",...new Set(data.restaurants.map(r=>r.ville))].filter(Boolean).map(v=>(
+                    <button key={v} onClick={()=>setCityFilter(v)}
+                      style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${cityFilter===v?C.accent:C.border}`,background:cityFilter===v?C.accent:"transparent",color:cityFilter===v?"white":C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {selectedRestaurant?(
+                <RestoReservations
+                  restaurant={selectedRestaurant}
+                  reservations={data.reservations.filter(r=>r.restaurant_id===selectedRestaurant.id)}
+                  onBack={()=>setSelectedRestaurant(null)}
+                />
+              ):(
+                <DataTable
+                  searchPlaceholder="Rechercher un restaurant..."
+                  data={data.restaurants.filter(r=>cityFilter==="Toutes"||r.ville===cityFilter)}
+                  columns={[
+                    {key:"emoji",label:"",render:r=><span style={{fontSize:20}}>{r.image_emoji||"🍽️"}</span>},
+                    {key:"nom",label:"Nom",accessor:"nom"},
+                    {key:"gerant",label:"Géré par",render:r=>{
+                      const rt=data.restaurateurs.find(rt=>rt.id===r.restaurateur_id);
+                      return <span style={{color:C.text,fontWeight:600}}>{rt?.responsable||"-"}</span>;
+                    }},
+                    {key:"ville",label:"Ville",accessor:"ville"},
+                    {key:"cuisine",label:"Cuisine",render:r=><span style={{color:C.muted,fontSize:11}}>{(r.cuisines||[]).join(", ")}</span>},
+                    {key:"dispo",label:"Disponible",render:r=>{
+                      const ok=r.disponible&&r.disponible_jusqu&&new Date(r.disponible_jusqu)>new Date();
+                      return <span style={{color:ok?C.green:C.muted,fontWeight:700}}>{ok?"🟢 Oui":"⚫ Non"}</span>;
+                    }},
+                    {key:"tables",label:"Tables",render:r=><span style={{color:C.muted,fontSize:11}}>👥{r.nb_tables_2||0} · 👨‍👩‍👧‍👦{r.nb_tables_4||0}</span>},
+                    {key:"prix",label:"Prix moy.",render:r=><span>{r.prix_moyen?`${r.prix_moyen}€`:"-"}</span>},
+                    {key:"resas",label:"Réservations",render:r=>{
+                      const count=data.reservations.filter(rv=>rv.restaurant_id===r.id).length;
+                      return(
+                        <button onClick={()=>setSelectedRestaurant(r)}
+                          style={{background:"rgba(59,130,246,0.1)",border:"1px solid rgba(59,130,246,0.3)",borderRadius:8,padding:"4px 10px",color:"#60a5fa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                          📋 {count} résa
+                        </button>
+                      );
+                    }},
+                  ]}
+                />
+              )}
+            </div>
+          )}
+
+          {/* ─── RÉSERVATIONS ─────────────────────────────────── */}
+          {tab==="reservations"&&(
+            <div style={{background:C.card,borderRadius:14,padding:18,border:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div style={{color:C.text,fontWeight:700,fontSize:14}}>{data.reservations.length} réservations</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {["Tous","confirmee","arrivee","terminee","annulee","no_show"].map(s=>(
+                    <button key={s} onClick={()=>setStatutFilter(s)}
+                      style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${statutFilter===s?C.accent:C.border}`,background:statutFilter===s?C.accent:"transparent",color:statutFilter===s?"white":C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+                      {s==="Tous"?"Tous":s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <DataTable
+                searchPlaceholder="Rechercher par nom client..."
+                data={data.reservations.filter(r=>statutFilter==="Tous"||r.statut===statutFilter)}
+                columns={[
+                  {key:"client",label:"Client",render:r=><span>{r.client_prenom} {r.client_nom||""}</span>},
+                  {key:"tel",label:"Téléphone",accessor:"client_telephone"},
+                  {key:"resto",label:"Restaurant",render:r=>{
+                    const rs=data.restaurants.find(rs=>rs.id===r.restaurant_id);
+                    return <span>{rs?.image_emoji||"🍽️"} {rs?.nom||"?"}</span>;
+                  }},
+                  {key:"table",label:"Table",render:r=><span>{r.table_type==="2"?"👥 2 pers":r.table_type==="4"?"👨‍👩‍👧‍👦 4 pers":r.nb_personnes+" pers"}</span>},
+                  {key:"statut",label:"Statut",render:r=>{
+                    const colors={confirmee:"#3b82f6",arrivee:"#22c55e",terminee:"#6b7280",annulee:"#ef4444",no_show:"#ef4444",rappel_envoye:"#eab308",prolongee:"#a855f7"};
+                    return <span style={{color:colors[r.statut]||C.muted,fontWeight:700,fontSize:12}}>{r.statut}</span>;
+                  }},
+                  {key:"date",label:"Date",render:r=><span style={{color:C.muted,fontSize:11}}>{fmtDate(r.created_at)}</span>},
+                ]}
+              />
+            </div>
+          )}
+
+          {/* ─── REPORTING ────────────────────────────────────── */}
+          {tab==="carte"&&(
+            <AdminMap restaurants={data.restaurants} restaurateurs={data.restaurateurs}/>
+          )}
+
+          {tab==="admins"&&(
+            <AdminsManager db={db} currentAdmin={admin}/>
+          )}
+
+          {tab==="reporting"&&(
+            <div>
+              {/* Stats globales textuelles */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:20}}>
+                {[
+                  {label:"Taux de réservations honorées",value:`${stats.tauxHonore}%`,icon:"✅",color:C.green},
+                  {label:"Taux d'annulation",value:`${stats.total>0?Math.round(stats.annulees/stats.total*100):0}%`,icon:"❌",color:C.red},
+                  {label:"Moy. résa/restaurant",value:data.restaurants.length>0?Math.round(stats.total/data.restaurants.length):0,icon:"📊",color:C.blue},
+                ].map((s,i)=><StatCard key={i} icon={s.icon} label={s.label} value={s.value} color={s.color}/>)}
+              </div>
+
+              {/* Stats par ville tableau */}
+              <div style={{background:C.card,borderRadius:14,padding:18,border:`1px solid ${C.border}`,marginBottom:16}}>
+                <div style={{color:C.text,fontWeight:700,fontSize:14,marginBottom:16}}>📍 Statistiques par ville</div>
+                <DataTable
+                  onSearch={false}
+                  data={stats.byVille}
+                  columns={[
+                    {key:"ville",label:"Ville",accessor:"ville"},
+                    {key:"restaurants",label:"Restaurants",accessor:"restaurants"},
+                    {key:"reservations",label:"Réservations",accessor:"reservations"},
+                    {key:"honorees",label:"Honorées",accessor:"honorees"},
+                    {key:"taux",label:"Taux honorées",render:r=>{
+                      const t=r.reservations>0?Math.round(r.honorees/r.reservations*100):0;
+                      return <span style={{color:t>=70?"#22c55e":t>=40?"#f5a623":"#ef4444",fontWeight:700}}>{t}%</span>;
+                    }},
+                  ]}
+                />
+              </div>
+
+              {/* Stats clients */}
+              <div style={{background:C.card,borderRadius:14,padding:18,border:`1px solid ${C.border}`,marginBottom:16}}>
+                <div style={{color:C.text,fontWeight:700,fontSize:14,marginBottom:16}}>👥 Statistiques clients par fiabilité</div>
+                <DataTable
+                  onSearch={false}
+                  data={[
+                    {statut:"tres_fiable",label:"⭐ Très fiable",count:data.clients.filter(c=>c.fiabilite_statut==="tres_fiable").length,avg_resa:data.clients.filter(c=>c.fiabilite_statut==="tres_fiable").reduce((a,c)=>a+(c.total_reservations||0),0)/Math.max(1,data.clients.filter(c=>c.fiabilite_statut==="tres_fiable").length)},
+                    {statut:"fiable",label:"✓ Fiable",count:data.clients.filter(c=>c.fiabilite_statut==="fiable").length,avg_resa:data.clients.filter(c=>c.fiabilite_statut==="fiable").reduce((a,c)=>a+(c.total_reservations||0),0)/Math.max(1,data.clients.filter(c=>c.fiabilite_statut==="fiable").length)},
+                    {statut:"peu_fiable",label:"⚠️ Peu fiable",count:data.clients.filter(c=>c.fiabilite_statut==="peu_fiable").length,avg_resa:data.clients.filter(c=>c.fiabilite_statut==="peu_fiable").reduce((a,c)=>a+(c.total_reservations||0),0)/Math.max(1,data.clients.filter(c=>c.fiabilite_statut==="peu_fiable").length)},
+                    {statut:"nouveau",label:"🆕 Nouveau",count:data.clients.filter(c=>!c.fiabilite_statut||c.fiabilite_statut==="nouveau").length,avg_resa:0},
+                  ]}
+                  columns={[
+                    {key:"label",label:"Statut",render:r=><FBadge statut={r.statut}/>},
+                    {key:"count",label:"Nb clients",accessor:"count"},
+                    {key:"pct",label:"% du total",render:r=><span style={{color:C.muted}}>{data.clients.length>0?Math.round(r.count/data.clients.length*100):0}%</span>},
+                    {key:"avg",label:"Moy. réservations",render:r=><span>{Math.round(r.avg_resa*10)/10}</span>},
+                  ]}
+                />
+              </div>
+
+              {/* Clients avec marketing consent */}
+              <div style={{display:"flex",gap:12}}>
+                <StatCard icon="📧" label="Clients avec email" value={data.clients.filter(c=>c.email).length} sub={`${data.clients.length>0?Math.round(data.clients.filter(c=>c.email).length/data.clients.length*100):0}% des clients`} color={C.blue}/>
+                <StatCard icon="📱" label="Consentement marketing" value={data.clients.filter(c=>c.consent_marketing).length} sub={`${data.clients.length>0?Math.round(data.clients.filter(c=>c.consent_marketing).length/data.clients.length*100):0}% des clients`} color={C.accent}/>
+                <StatCard icon="🆓" label="Restaurateurs en essai" value={data.restaurateurs.filter(r=>r.plan==="trial").length} color={C.green}/>
+                <StatCard icon="💰" label="Abonnés payants" value={data.restaurateurs.filter(r=>r.plan!=="trial").length} color={C.gold}/>
+              </div>
+            </div>
+          )}
+        </>}
+      </div>
+    </div>
+  );
+}
+
+// ── ROOT ─────────────────────────────────────────────────────
+function App(){
+  const [admin,setAdmin]=useState(null);
+  if(!admin) return <AdminLogin onSuccess={setAdmin}/>;
+  return <AdminApp admin={admin} onLogout={()=>setAdmin(null)}/>;
+}
+
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</html>
