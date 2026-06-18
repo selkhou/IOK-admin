@@ -1951,7 +1951,7 @@ function SuggestionsPanel({type, titre}){
     try{
       let query=db().from("suggestions").select("*").order("created_at",{ascending:false}).limit(200);
       if(type==="prestataire") query=query.eq("type","prestataire");
-      if(type==="siok") query=query.in("type",["etudiant","etudiant_anon"]);
+      if(type==="siok") query=query.in("type",["etudiant","etudiant_anon","prestataire"]);
       const {data}=await query;
       setSuggestions(data||[]);
     }catch(e){console.error(e);}
