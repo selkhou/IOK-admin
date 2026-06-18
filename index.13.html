@@ -1886,16 +1886,18 @@ function BonsCadeauxPanel(){
   };
   useEffect(()=>{load();},[]);
 
-  const valider=async(b)=>{
-    await db().from("bons_cadeaux").update({statut:"valide",validated_at:new Date().toISOString()}).eq("id",b.id);
-    const {data:et}=await db().from("etudiants").select("points").eq("id",b.etudiant_id).single();
-    if(et) await db().from("etudiants").update({points:Math.max(0,(et.points||0)-b.points_utilises)}).eq("id",b.etudiant_id);
-    await load();
-  };
-  const rejeter=async(b)=>{
-    await db().from("bons_cadeaux").update({statut:"rejete"}).eq("id",b.id);
-    await load();
-  };
+ const valider=async(b)=>{
+  // Points déjà déduits à la réclamation — on valide juste le statut
+  await db().from("bons_cadeaux").update({statut:"valide",validated_at:new Date().toISOString()}).eq("id",b.id);
+  await load();
+};
+const rejeter=async(b)=>{
+  // Recréditer les points car le bon est refusé
+  await db().from("bons_cadeaux").update({statut:"rejete"}).eq("id",b.id);
+  const {data:et}=await db().from("etudiants").select("points").eq("id",b.etudiant_id).single();
+  if(et) await db().from("etudiants").update({points:(et.points||0)+b.points_utilises}).eq("id",b.etudiant_id);
+  await load();
+};
 
   const enAttente=bons.filter(b=>b.statut==="en_attente");
 
