@@ -1962,7 +1962,7 @@ function SuggestionsPanel({type, titre}){
 
   const noteStars=(n)=>{
     if(!n) return <span style={{color:C.muted}}>—</span>;
-    return <span style={{color:"#F5A623",fontWeight:700}}>{"★".repeat(n)}{"☆".repeat(5-n)}</span>;
+   return <span style={{fontWeight:700}}><span style={{color:"#F5A623"}}>{"★".repeat(n)}</span><span style={{color:"#D1D5DB"}}>{"☆".repeat(5-n)}</span></span>;
   };
 
   const typeBadge=(t)=>{
