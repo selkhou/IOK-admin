@@ -2784,7 +2784,7 @@ function SondagesProductionPanel({sondages,onReload}){
     const loadAll=async()=>{
       setLoadingRep(true);
       const [{data:repData},{data:questData}]=await Promise.all([
-        db().from("reponses_sondage").select("*,etudiants(prenom,statut_validation)").order("created_at",{ascending:false}),
+        db().from("reponses_sondage").select("*").order("created_at",{ascending:false}),
         db().from("questions_sondage").select("*").order("ordre",{ascending:true}),
       ]);
       // Map réponses par sondage_id
