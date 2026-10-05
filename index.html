@@ -4499,7 +4499,7 @@ function SIOKSettingsManager(){
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 16px",marginBottom:20}}>
             <div style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>⭐ Points gagnés</div>
             <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
-              {[{cle:"points_qrc",label:"QRC validé"},{cle:"points_avis",label:"Avis validé"},{cle:"points_photo",label:"Photo"},{cle:"points_max_jour",label:"Max/jour"}].map(({cle,label})=>{
+              {[{cle:"points_qrc",label:"QRC validé"},{cle:"points_avis",label:"Avis validé"},{cle:"points_photo",label:"Photo"},{cle:"points_max_jour",label:"Max/jour"},{cle:"points_max_mois",label:"Max/mois"}].map(({cle,label})=>{
                 const p=params.find(p=>p.cle===cle);
                 const val=p?.valeur??SIOK_META[cle]?.default??"0";
                 return(
