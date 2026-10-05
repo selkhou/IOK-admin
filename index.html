@@ -4422,6 +4422,7 @@ function SIOKSettingsManager(){
     palier_3_points:          {label:"Palier 3 — points requis",           unit:"pts",    icon:"🎁", type:"decimal", min:0, max:9999, default:750,  section:"Points"},
     palier_3_valeur:          {label:"Palier 3 — valeur bon cadeau",       unit:"€",      icon:"🎁", type:"decimal", min:0, max:999,  default:70,   section:"Points"},
     points_max_jour:          {label:"Maximum de points par jour",         unit:"pts",    icon:"🔒", type:"decimal", min:0, max:100, default:5,     section:"Points"},
+    points_max_mois:        {label:"Maximum de points par mois",        unit:"pts",    icon:"🔒", type:"decimal", min:0, max:10000, default:170,   section:"Points"},
   };
 
   const loadParams=async()=>{setLoading(true);const {data}=await db().from("parametres").select("*").order("cle");if(data)setParams(data);setLoading(false);};
